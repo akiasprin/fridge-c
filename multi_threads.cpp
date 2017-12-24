@@ -12,10 +12,10 @@
 #define MAXTHREADPOOL 5
 const int HTTP_EOF_LEN = 4;
 const char *HTTP_EOF = "\r\n\r\n";
-
+const char *DEMO_RESP = "HTTP/1.0 200 OK\r\nContent-Length: 11\r\nContent-Type: text/html; charset=UTF-8\r\n\r\nHello World\r\n";
 int serversock;
 struct sockaddr_in server;
-    
+
 static void Die(const char *mess)
 { 
     perror(mess); 
@@ -42,7 +42,7 @@ void *handle(int *sock)
     int count = 0, offset = 0;
     do {
         if ((received = recv(*sock, buffer, BUFFSIZE, 0)) < 0) {
-            fprintf(stderr, "HTTP包接收失败.");
+            fprintf(stderr, "Failed to receive completely.");
             return (void *)1;
         }
         src = dst;
@@ -55,12 +55,16 @@ void *handle(int *sock)
         memcpy(dst + offset, buffer, received * sizeof(char));
         dst[count] = '\0';
         offset = count * sizeof(char);
-        if (memcmp(dst + strlen(dst) - HTTP_EOF_LEN, HTTP_EOF, HTTP_EOF_LEN) == 0) {
-            // puts("HTTP包接收完毕.");
+        if (memcmp(dst + count - HTTP_EOF_LEN, HTTP_EOF, HTTP_EOF_LEN) == 0) {
+            puts("======> HTTP包接收完毕 <======");
+            puts(dst);
             break;
         }
-    } while (received > 0);
-    // puts(dst);
+    } while (received >= 0);
+    write(*sock, DEMO_RESP, strlen(DEMO_RESP));
+    shutdown(*sock, 2);
+    close(*sock);
+    free(sock);
     return (void *)0;
 }
 
@@ -68,7 +72,11 @@ pthread_t go(void *(*func)(void *), void *args)
 {
     int err;
     pthread_t tid;
-    if ((err = pthread_create(&tid, NULL, func, args)) != 0) {
+
+    int *args_copy = (int *)malloc(sizeof(int));
+    (*args_copy) = *((int *)args);
+
+    if ((err = pthread_create(&tid, NULL, func, args_copy)) != 0) {
         Die(strcat("Failed to create thread: ", strerror(err)));
     }
     return tid;
@@ -86,7 +94,6 @@ void loop()
         }
         fprintf(stdout, "Client connected: %s\n",
                 inet_ntoa(client.sin_addr));
-
         go((void *(*)(void *))handle, (void *)&sock);
     }
 }
