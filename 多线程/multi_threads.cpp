@@ -7,12 +7,13 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
-#define BUFFSIZE 4
+#define BUFFSIZE 32
 #define MAXPENDING 5
 #define MAXTHREADPOOL 5
 const int HTTP_EOF_LEN = 4;
 const char *HTTP_EOF = "\r\n\r\n";
 const char *DEMO_RESP = "HTTP/1.0 200 OK\r\nContent-Length: 11\r\nContent-Type: text/html; charset=UTF-8\r\n\r\nHello World\r\n";
+
 int serversock;
 struct sockaddr_in server;
 
@@ -56,14 +57,15 @@ void *handle(int *sock)
         dst[count] = '\0';
         offset = count * sizeof(char);
         if (memcmp(dst + count - HTTP_EOF_LEN, HTTP_EOF, HTTP_EOF_LEN) == 0) {
-            puts("======> HTTP包接收完毕 <======");
+            puts("======> Completely Retrived <======");
             puts(dst);
-            break;
+            src = dst = NULL;
+            count = offset = 0;
+            // send response
+            write(*sock, DEMO_RESP, strlen(DEMO_RESP));
         }
-    } while (received >= 0);
-    write(*sock, DEMO_RESP, strlen(DEMO_RESP));
-    shutdown(*sock, 2);
-    close(*sock);
+    } while (received > 0); //0 received since closed by client 
+    shutdown(*sock, SHUT_RDWR);
     free(sock);
     return (void *)0;
 }
@@ -77,7 +79,7 @@ pthread_t go(void *(*func)(void *), void *args)
     (*args_copy) = *((int *)args);
 
     if ((err = pthread_create(&tid, NULL, func, args_copy)) != 0) {
-        Die(strcat("Failed to create thread: ", strerror(err)));
+        Die("Failed to create a thread");
     }
     return tid;
 }
@@ -100,8 +102,8 @@ void loop()
 
 int main(int argc, char *argv[])
 {
-    if (argc != 4) {
-        fprintf(stderr, "USAGE: HTTPServer <ServerIP> <Port> <Word>");
+    if (argc != 3) {
+        fprintf(stderr, "USAGE: HTTPServer <ServerIP> <Port>");
         exit(1);
     }
     if ((serversock =
