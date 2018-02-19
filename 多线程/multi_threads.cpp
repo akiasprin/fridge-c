@@ -7,7 +7,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <pthread.h>
-#define BUFFSIZE 32
+#define BUFFSIZE 128
 #define MAXPENDING 5
 #define MAXTHREADPOOL 5
 const int HTTP_EOF_LEN = 4;
@@ -37,10 +37,10 @@ static void _set_tcp_reuseaddr(int fd)
 
 void *handle(int *sock)
 {
-    char *src = NULL, *dst = NULL;
+    char *src = NULL, *dst = NULL, *pos = NULL;
     char buffer[BUFFSIZE];
     ssize_t received = -1;
-    int count = 0, offset = 0;
+    int count = 0, offset = 0, clen = 0;
     do {
         if ((received = recv(*sock, buffer, BUFFSIZE, 0)) < 0) {
             fprintf(stderr, "Failed to receive completely.");
@@ -56,7 +56,19 @@ void *handle(int *sock)
         memcpy(dst + offset, buffer, received * sizeof(char));
         dst[count] = '\0';
         offset = count * sizeof(char);
-        if (memcmp(dst + count - HTTP_EOF_LEN, HTTP_EOF, HTTP_EOF_LEN) == 0) {
+	if (pos == NULL) {
+		pos = strstr(dst, HTTP_EOF);
+		if (pos == NULL) continue;
+		char *ppos = strstr(dst, "Content-Length: ") + strlen("Content-Length: ");
+		if (ppos != NULL) {
+			int ed = strstr(ppos, "\r\n") - ppos;
+			ppos[ed] = '\0';
+			clen = atoi(ppos);
+			ppos[ed] = '\r';
+		}
+	}
+        if ((clen == 0 && memcmp(dst + count - HTTP_EOF_LEN, HTTP_EOF, HTTP_EOF_LEN) == 0) ||
+		(pos != NULL && count >= pos + HTTP_EOF_LEN - dst + clen)) {
             puts("======> Completely Retrived <======");
             puts(dst);
             src = dst = NULL;
